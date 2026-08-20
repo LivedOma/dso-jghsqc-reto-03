@@ -1,0 +1,123 @@
+# =========================================================
+#  Deployment: describe el estado deseado del microservicio.
+#  Kubernetes se encarga de mantener ese estado: si un pod
+#  muere, crea otro para conservar el numero de replicas.
+# =========================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-micro
+  namespace: demo
+  labels:
+    app: demo-micro
+    app.kubernetes.io/name: demo-micro
+    app.kubernetes.io/version: "sha-955b92c"
+spec:
+  replicas: 2
+
+  # Estrategia de despliegue: reemplazo progresivo sin corte de
+  # servicio. maxUnavailable 0 garantiza que siempre haya un pod
+  # atendiendo mientras se despliega la nueva version.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+
+  selector:
+    matchLabels:
+      app: demo-micro
+
+  template:
+    metadata:
+      labels:
+        app: demo-micro
+        app.kubernetes.io/name: demo-micro
+    spec:
+      # El contenedor ya define appuser en el Dockerfile; aqui se
+      # declara de forma explicita para que el cluster lo verifique
+      # y rechace la ejecucion si la imagen intentara correr como root.
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: app
+
+          # Etiqueta inmutable en lugar de :latest. Con una etiqueta
+          # movil e imagePullPolicy IfNotPresent el nodo reutiliza para
+          # siempre la primera imagen que descargo, y el despliegue deja
+          # de ser reproducible. El SHA identifica el commit exacto.
+          image: docker.io/cclememte/demo-micro:sha-955b92c
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 8080
+
+          env:
+            # La JVM debe conocer el limite del contenedor para dimensionar
+            # el heap; sin esto puede intentar usar la memoria del nodo
+            # completo y ser terminada por OOMKill.
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:MaxRAMPercentage=75.0"
+            - name: APP_VERSION
+              value: "k8s-sha-955b92c"
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          # Startup probe: cubre el arranque de Spring Boot sin obligar
+          # a la liveness a esperar un tiempo fijo. Concede hasta 60 s
+          # (12 intentos x 5 s) y solo despues activa las otras probes.
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+
+          # Readiness: decide si el pod recibe trafico del Service.
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # Liveness: decide si el pod debe reiniciarse.
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+          # readOnlyRootFilesystem obliga a declarar los directorios
+          # donde la JVM necesita escribir.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+      # Para repositorios privados en Docker Hub, descomentar y crear
+      # el secreto con: kubectl create secret docker-registry regcred ...
+      # imagePullSecrets:
+      #   - name: regcred

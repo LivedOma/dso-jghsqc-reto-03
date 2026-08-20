@@ -1,0 +1,29 @@
+# =========================================================
+#  Service: da una direccion estable al conjunto de pods y
+#  balancea el trafico entre ellos. Los pods cambian de IP al
+#  reiniciarse; el Service no. Por eso nunca se usan IPs de pod.
+#
+#  Tipo NodePort: expone el servicio en un puerto fijo de cada
+#  nodo del cluster, accesible desde fuera del mismo.
+# =========================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-micro
+  namespace: demo
+  labels:
+    app: demo-micro
+spec:
+  type: NodePort
+
+  # El selector es lo que une el Service con los pods: cualquier
+  # pod con esta etiqueta recibe trafico, sin importar en que nodo
+  # este ni cuantas veces se haya recreado.
+  selector:
+    app: demo-micro
+
+  ports:
+    - name: http
+      port: 80          # puerto del Service dentro del cluster
+      targetPort: http  # puerto del contenedor (referenciado por nombre)
+      nodePort: 30080   # puerto expuesto en el nodo (rango 30000-32767)

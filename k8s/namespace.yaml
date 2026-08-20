@@ -1,0 +1,11 @@
+# =========================================================
+#  Namespace: aisla los recursos del microservicio del resto
+#  del cluster y permite aplicar cuotas de forma independiente.
+# =========================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+  labels:
+    app.kubernetes.io/part-of: dso-jghsqc
+    entorno: laboratorio
