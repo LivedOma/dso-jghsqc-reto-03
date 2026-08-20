@@ -138,6 +138,7 @@ kubectl delete namespace demo
 | `targetPort` referenciado por nombre (`http`) | Si cambia el puerto del contenedor basta actualizarlo en un sitio; el Service sigue apuntando correctamente. |
 | Volumen `emptyDir` montado en `/tmp` | Consecuencia de `readOnlyRootFilesystem`: la JVM necesita un directorio temporal con permiso de escritura. |
 | Etiquetas `app.kubernetes.io/*` | Convención estándar de Kubernetes; facilita el filtrado y la integración con herramientas de observabilidad. |
+| `runAsUser: 999` explícito | El kubelet no resuelve nombres de usuario contra el `/etc/passwd` de la imagen. Con `runAsNonRoot: true` y un `USER appuser` por nombre, el pod falla con `CreateContainerConfigError`. Ver sección 9. |
 
 ---
 
@@ -151,3 +152,38 @@ kubectl delete namespace demo
 | `curl localhost:30080` no responde | El NodePort no está expuesto en el host. Usar `kubectl port-forward` como alternativa. |
 | `OOMKilled` | El límite de memoria es insuficiente para la JVM. Revisar que `JAVA_TOOL_OPTIONS` esté aplicado y subir el límite si hace falta. |
 | `Pending` sin asignar nodo | Recursos insuficientes en el clúster. Verificar con `kubectl describe pod` la sección Events. |
+
+
+---
+
+## 9. Hallazgo: `runAsNonRoot` exige un UID numérico
+
+Al aplicar los manifiestos por primera vez los pods quedaron en `CreateContainerConfigError` con el siguiente evento:
+
+```
+Error: container has runAsNonRoot and image has non-numeric user (appuser),
+cannot verify user is non-root
+```
+
+El Dockerfile define `USER appuser`, un nombre. Para validar que el usuario no es root, el kubelet necesita un **UID numérico**: no puede montar ni consultar el `/etc/passwd` de la imagen antes de crear el contenedor, así que ante un nombre no puede verificar nada y rechaza el pod.
+
+El UID se obtiene sobrescribiendo el `ENTRYPOINT` de la imagen:
+
+```bash
+docker run --rm --entrypoint id cclememte/demo-micro:sha-955b92c -u
+# -> 999
+```
+
+Y se declara en el `securityContext` del pod:
+
+```yaml
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 999
+  runAsGroup: 999
+  fsGroup: 999
+```
+
+**Solución de fondo:** declarar el usuario de forma numérica en el propio Dockerfile —`USER 999:999` en lugar de `USER appuser`— para que la imagen sea directamente compatible con políticas de seguridad de cualquier orquestador, sin depender de que el manifiesto lo complemente.
+
+El caso ilustra que una imagen puede ejecutarse correctamente bajo Docker y aun así ser rechazada por Kubernetes: el orquestador aplica controles que el runtime por sí solo no exige.

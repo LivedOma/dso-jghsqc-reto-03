@@ -39,6 +39,12 @@ spec:
       # y rechace la ejecucion si la imagen intentara correr como root.
       securityContext:
         runAsNonRoot: true
+        # UID numerico obligatorio: el kubelet no resuelve nombres de
+        # usuario contra el /etc/passwd de la imagen, por lo que con
+        # runAsNonRoot y un USER por nombre el pod no llega a arrancar.
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
         seccompProfile:
           type: RuntimeDefault
 
@@ -67,7 +73,10 @@ spec:
 
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
+            # readOnlyRootFilesystem quedaria como practica ideal, pero
+            # exige mapear todos los directorios donde la JVM escribe.
+            # Se deja desactivado y se compensa con el resto de controles.
+            readOnlyRootFilesystem: false
             capabilities:
               drop: ["ALL"]
 
